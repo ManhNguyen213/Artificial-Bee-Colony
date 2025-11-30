@@ -1,0 +1,132 @@
+import random
+import numpy as np
+import matplotlib.pyplot as plt 
+
+# Hàm mục tiêu: Rastrigin
+def objective_function(x):
+    x = np.array(x)
+    D = len(x)
+    return 10*D + np.sum(x**2 - 10*np.cos(2*np.pi*x))
+
+# Tính fitness
+def calculate_fitness(f):
+    return 1/(1 + f) if f >= 0 else 1 + abs(f)
+
+class FoodSource:
+    def __init__(self, position, func):
+        self.position = np.array(position, dtype=float)
+        self.obj = func(self.position)
+        self.fitness = calculate_fitness(self.obj)
+        self.trial = 0
+
+class GABC:
+    def __init__(self, func, bounds, pop_size=20, max_iter=500, limit=50, C=1.5):
+        self.func = func
+        self.bounds = np.array(bounds, dtype=float)
+        self.pop_size = pop_size
+        self.max_iter = max_iter
+        self.limit = limit
+        self.C = C  # Hệ số hướng về global best
+
+        # Khởi tạo quần thể
+        self.population = [
+            FoodSource([random.uniform(b[0], b[1]) for b in bounds], func)
+            for _ in range(pop_size)
+        ]
+        self.best = min(self.population, key=lambda f: f.obj)
+        self.history = []
+
+    # Tạo nghiệm mới theo GABC
+    def generate_neighbor(self, i):
+        xi = self.population[i].position.copy()
+        k = random.choice([a for a in range(self.pop_size) if a != i])
+        xk = self.population[k].position
+        j = random.randint(0, len(self.bounds) - 1)
+        phi = random.uniform(-1, 1)
+        psi = random.uniform(0, 1)
+        v = xi.copy()
+        # Công thức GABC
+        v[j] = xi[j] + phi*(xi[j] - xk[j]) + self.C*psi*(self.best.position[j] - xi[j])
+        low, high = self.bounds[j]
+        v[j] = np.clip(v[j], low, high)
+        return v
+
+    # Xác suất chọn nguồn thức ăn
+    def calculate_prob(self):
+        fits = np.array([sol.fitness for sol in self.population])
+        return fits / np.sum(fits)
+
+    # Chạy thuật toán GABC
+    def run(self):
+        for it in range(self.max_iter):
+
+            # Pha ong thợ
+            for i in range(self.pop_size):
+                v = self.generate_neighbor(i)
+                new_obj = self.func(v)
+                new_fit = calculate_fitness(new_obj)
+                if new_fit > self.population[i].fitness:
+                    self.population[i].position = v
+                    self.population[i].obj = new_obj
+                    self.population[i].fitness = new_fit
+                    self.population[i].trial = 0
+                else:
+                    self.population[i].trial += 1
+
+            # Pha ong quan sát
+            prob = self.calculate_prob()
+            for _ in range(self.pop_size):
+                i = np.random.choice(range(self.pop_size), p=prob)
+                v = self.generate_neighbor(i)
+                new_obj = self.func(v)
+                new_fit = calculate_fitness(new_obj)
+                if new_fit > self.population[i].fitness:
+                    self.population[i].position = v
+                    self.population[i].obj = new_obj
+                    self.population[i].fitness = new_fit
+                    self.population[i].trial = 0
+                else:
+                    self.population[i].trial += 1
+
+            # Pha ong trinh sát
+            worst = max(self.population, key=lambda f: f.trial)
+            if worst.trial > self.limit:
+                new_pos = np.array([random.uniform(b[0], b[1]) for b in self.bounds])
+                worst.position = new_pos
+                worst.obj = self.func(new_pos)
+                worst.fitness = calculate_fitness(worst.obj)
+                worst.trial = 0
+
+            # Cập nhật nghiệm tốt nhất
+            current_best = min(self.population, key=lambda f: f.obj)
+            if current_best.obj < self.best.obj:
+                self.best = current_best
+
+            self.history.append(self.best.obj)
+
+            # In ra các vòng lặp
+            if it < 50:
+                print(f"Iter {it}: best = {self.best.obj:.6f}, x = {self.best.position}")
+
+        return self.best.position, self.best.obj
+
+# ============================
+# Chạy thuật toán GABC
+# ============================
+if __name__ == "__main__":
+    bounds = [(-5, 5), (-5, 5)]
+    gabc = GABC(objective_function, bounds, pop_size=20, max_iter=500, limit=50, C=1.5)
+    best_pos, best_val = gabc.run()
+
+    print("\nFINAL BEST =", best_pos)
+    print("FINAL OBJ  =", best_val)
+
+    # Vẽ đồ thị hội tụ
+    history_100 = gabc.history[:50]
+    plt.figure(figsize=(10,6))
+    plt.plot(history_100, color='red', marker='o', markersize=3, linewidth=1)
+    plt.title("Convergence Curve of GABC (First 50 iterations)")
+    plt.xlabel("Iteration")
+    plt.ylabel("Best objective value")
+    plt.grid(True)
+    plt.show()
